@@ -14,7 +14,7 @@ import {Product} from "../../type/product/product";
 })
 export class WebsocketService {
 
-  public static readonly WEBSOCKET_ENDPOINT = "wsapi/product";
+  public static readonly WEBSOCKET_ENDPOINT = "wsapi/websocket";
   private websocket?: WebSocketSubject<any>;
   private readonly webSocketEventSubject: Subject<WebsocketEvent> = new Subject();
   public readonly productUpdateSubject: Subject<Product> = new Subject<Product>();
@@ -50,11 +50,15 @@ export class WebsocketService {
   }
 
   public openWebsocket(productColor: string) {
-    const webSocketUrl = WebsocketService.getWebsocketUrl(WebsocketService.WEBSOCKET_ENDPOINT);
+    const webSocketUrl = "ws://localhost:8080/websocket"
     this.websocket = webSocket<WebsocketRequest | WebsocketEvent>(webSocketUrl);
     this.websocketSubscription = this.websocket.subscribe(event => {
       this.webSocketEventSubject.next(event as WebsocketEvent);
     });
+    this.sendNewRequest(productColor);
+  }
+
+  public sendNewRequest(productColor: string) {
     this.send("QueryRequest", {productColor});
   }
 

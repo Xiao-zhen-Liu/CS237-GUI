@@ -1,9 +1,11 @@
-import {Component, OnInit} from '@angular/core';
+import {Component, OnDestroy, OnInit} from '@angular/core';
 import * as L from 'leaflet';
-import {latLng, MapOptions, tileLayer, Map, marker, Marker} from 'leaflet';
+import {latLng, MapOptions, tileLayer, Map as M, marker, Marker, Layer} from 'leaflet';
+// @ts-ignore
 import icons from 'leaflet-color-number-markers';
 import {WebsocketService} from "../../service/websocket/websocket.service";
 import { UntilDestroy, untilDestroyed } from "@ngneat/until-destroy";
+import {Product} from "../../type/product/product";
 
 @UntilDestroy()
 @Component({
@@ -11,11 +13,15 @@ import { UntilDestroy, untilDestroyed } from "@ngneat/until-destroy";
   templateUrl: './map.component.html',
   styleUrls: ['./map.component.scss']
 })
-export class MapComponent implements OnInit {
+
+export class MapComponent implements OnInit, OnDestroy {
 
   markerClusterGroup!: L.MarkerClusterGroup;
-  map!: Map;
+  map!: M;
   mapOptions!: MapOptions;
+  // Maps a product to its indexed position in the markerClusterGroup
+  productIdToInfos = new Map<String, {product: Product, clusterIdx: number}>();
+  inputData: string = 'White';
 
   constructor(private websocketService: WebsocketService) {
     this.markerClusterGroup = L.markerClusterGroup({removeOutsideVisibleBounds: true});
@@ -25,14 +31,15 @@ export class MapComponent implements OnInit {
     this.initializeMapOptions();
   }
 
-  onMapReady(map: Map) {
+  ngOnDestroy() {
+    this.websocketService.closeWebsocket();
+  }
+
+  onMapReady(map: M) {
     this.map = map;
-    this.createMarker();
-    this.addLayersToMap();
-    this.websocketService.openWebsocket("red");
-    this.websocketService.productUpdateSubject.asObservable().pipe(untilDestroyed(this)).subscribe(product => {
-      console.log(product);
-    })
+    this.markerClusterGroup.addTo(this.map);
+    this.websocketService.openWebsocket("White");
+    this.handleNewData();
     // setInterval(()=>{
     //   this.markerClusterGroup.eachLayer(layer => {
     //     const randInt = Math.floor(Math.random() * (Math.floor(1000) - Math.ceil(0) + 1)) + Math.ceil(0);
@@ -46,6 +53,29 @@ export class MapComponent implements OnInit {
     //   this.markerClusterGroup.removeLayer(this.markerClusterGroup.getLayer(randomLayerId) as Layer);
     //   this.markerClusterGroup.addLayer(MapComponent.randomMarker());
     // }, 0.1);
+  }
+
+  private handleNewData() {
+    this.websocketService.productUpdateSubject.asObservable().pipe(untilDestroyed(this)).subscribe(product => {
+      console.log(product);
+      if (!this.productIdToInfos.has(product.id)) {
+        if (product.quantity > 0) {
+          const newMarker = MapComponent.createMarker(product);
+          this.markerClusterGroup.addLayer(newMarker);
+          this.productIdToInfos[product.id] = {
+            product: product,
+            clusterIdx: this.markerClusterGroup.getLayerId(newMarker)
+          }
+        }
+      } else {
+        const info = this.productIdToInfos[product.id];
+        if (product.quantity > 0) {
+          (this.markerClusterGroup.getLayer(info.clusterIdx) as Marker).setIcon(MapComponent.getDefaultIcon(product.quantity));
+        } else {
+          this.markerClusterGroup.removeLayer(this.markerClusterGroup.getLayer(info.clusterIdx) as Layer);
+        }
+      }
+    })
   }
 
   private initializeMapOptions() {
@@ -63,13 +93,21 @@ export class MapComponent implements OnInit {
     };
   }
 
-  private createMarker() {
+  private batchAddMarkers(products: Product[]) {
     const markerClusterData: L.Marker[] = [];
-    for (let i = 0; i < 50000; i++) {
-      const newMarker = MapComponent.randomMarker();
+
+    for (const product of products) {
+      const newMarker = MapComponent.createMarker(product);
       markerClusterData.push(newMarker);
     }
     this.markerClusterGroup.addLayers(markerClusterData);
+    for (const product of products) {
+      const newMarker = MapComponent.createMarker(product);
+      this.productIdToInfos[product.id] = {
+        product: product,
+        clusterIdx: this.markerClusterGroup.getLayerId(newMarker),
+      }
+    }
   }
 
   private static randomMarker(): Marker {
@@ -84,12 +122,25 @@ export class MapComponent implements OnInit {
     return newMarker;
   }
 
+  private static createMarker(product: Product): Marker {
+    const newMarker =  marker(latLng(product.geo_lat, product.geo_long));
+    let q = product.quantity;
+    if (q > 1000)
+      q = 999
+    newMarker.setIcon(MapComponent.getDefaultIcon(q));
+    return newMarker.bindPopup(MapComponent.createPopupString(product));
+  }
+
   private static getDefaultIcon(quantity: number) {
     return icons.black.numbers[quantity];
   }
 
-  private addLayersToMap() {
-    this.markerClusterGroup.addTo(this.map);
+  private static createPopupString(product: Product): string {
+    return `${product.brand}\n${product.name}\n${product.price}`
   }
 
+  submitSearch(inputData: string) {
+    this.markerClusterGroup.clearLayers();
+    this.websocketService.sendNewRequest(inputData);
+  }
 }

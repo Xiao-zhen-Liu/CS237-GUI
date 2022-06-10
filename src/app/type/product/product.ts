@@ -3,10 +3,10 @@ export class Product {
   brand!: string;
   categories!: string;
   colors!: string;
-  imageURLs!: string;
+  image_url!: string;
   name!: string;
   price!: number;
   quantity!: number;
-  geoLat!: number;
-  geoLong!: number;
+  geo_lat!: number;
+  geo_long!: number;
 }
